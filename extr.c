@@ -30,6 +30,10 @@ static pdf_document *doc;
 void dump_stream(int i, FILE *fout)
 {
 	fz_stream *stm = pdf_open_stream(doc, i, 0);
+	if (!stm) {
+		fprintf(stderr, "extr: cannot open stream for object %d\n", i);
+		return;
+	}
 	static unsigned char buf[8192];
 	while (1) {
 		int n = fz_read(stm, buf, sizeof buf);
@@ -43,6 +47,10 @@ void dump_stream(int i, FILE *fout)
 int save_attachments(int pageno, char *targetdir)
 {
 	pdf_page *page = pdf_load_page(doc, pageno-1);
+	if (!page) {
+		fprintf(stderr, "extr: cannot load page %d\n", pageno);
+		return 0;
+	}
 	pdf_annot *annot;
 	int saved_count = 0;
 
@@ -50,16 +58,19 @@ int save_attachments(int pageno, char *targetdir)
 		pdf_obj *fs_obj = pdf_dict_gets(annot->obj, "FS");
 		if (fs_obj) {
 			pdf_obj *ef_obj;
-			char *name = basename(strdup(pdf_to_str_buf(pdf_dict_gets(fs_obj, "F"))));
+			char *raw_name = pdf_to_str_buf(pdf_dict_gets(fs_obj, "F"));
+			char *name_dup = strdup(raw_name ? raw_name : "unknown");
+			char *name = basename(name_dup);
 			ef_obj = pdf_dict_gets(fs_obj, "EF");
 			if (ef_obj) {
 				pdf_obj *f_obj = pdf_dict_gets(ef_obj, "F");
 				if (f_obj && pdf_is_indirect(f_obj)) {
 					static char pathname[PATH_MAX];
-					sprintf(pathname, "%s/%s", targetdir, name);
+					snprintf(pathname, PATH_MAX, "%s/%s", targetdir, name);
 					FILE *fout = fopen(pathname, "w");
 					if (!fout) {
 						fprintf(stderr, "extr: cannot write to file %s\n", pathname);
+						free(name_dup);
 						exit(1);
 					}
 					dump_stream(pdf_to_num(f_obj), fout);
@@ -67,6 +78,7 @@ int save_attachments(int pageno, char *targetdir)
 					saved_count++;
 				}
 			}
+			free(name_dup);
 		}
 	}
 	return saved_count;
@@ -82,12 +94,13 @@ int main(int argc, char *argv[])
 	}
 
 	char *filename = strdup(argv[1]);
-	char *dir = dirname(strdup(filename));
+	char *dir = dirname(filename);
 	int pageno = atoi(argv[2]);
 
 	fz_context *ctx = fz_new_context(NULL, NULL, FZ_STORE_UNLIMITED);
 	if (!ctx) {
 		fprintf(stderr, "extr: cannot create context\n");
+		free(filename);
 		exit(1);
 	}
 
@@ -98,8 +111,10 @@ int main(int argc, char *argv[])
 	}
 	fz_catch(ctx)
 	{
+		fprintf(stderr, "extr: error processing PDF: %s\n", fz_caught_message(ctx));
 	}
 
+	free(filename);
 	printf("%d\n", saved);
 	return 0;
 }
