@@ -53,7 +53,10 @@ static int nnsvg_new(lua_State *L) {
     // Get an instantiated NSVGimage struct from the parsed input
     // and store its address in our userdata
     if ( is_svg_data ) {
-        *udata = nsvgParse((char*)input, "px", dpi);
+        // nsvgParse modifies the input string in place, so we must make a mutable copy
+        char *input_copy = strdup(input);
+        *udata = nsvgParse(input_copy, "px", dpi);
+        free(input_copy);
     }
     else {
         *udata = nsvgParseFromFile(input, "px", dpi);
